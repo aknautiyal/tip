@@ -51,6 +51,7 @@ enum hdmi_packet_type {
 	HDMI_PACKET_TYPE_DST_AUDIO = 0x08,
 	HDMI_PACKET_TYPE_HBR_AUDIO_STREAM = 0x09,
 	HDMI_PACKET_TYPE_GAMUT_METADATA = 0x0a,
+	HDMI_PACKET_TYPE_EMP = 0x7f,
 	/* + enum hdmi_infoframe_type */
 };
 
@@ -467,5 +468,47 @@ int hdmi_infoframe_unpack(union hdmi_infoframe *frame,
 			  const void *buffer, size_t size);
 void hdmi_infoframe_log(const char *level, struct device *dev,
 			const union hdmi_infoframe *frame);
+
+/* Extended Metadata Packet */
+enum hdmi_emp_type {
+	HDMI_EMP_TYPE_VSEMDS,
+	HDMI_EMP_TYPE_CVTEM,
+	HDMI_EMP_TYPE_HDR_DMEI,
+	HDMI_EMP_TYPE_VTEM,
+};
+
+enum hdmi_emp_ds_type {
+	HDMI_EMP_DS_TYPE_PSTATIC,
+	HDMI_EMP_DS_TYPE_DYNAMIC,
+	HDMI_EMP_DS_TYPE_UNIQUE,
+	HDMI_EMP_DS_TYPE_RESERVED,
+};
+
+struct hdmi_emp_header {
+	u8 hb0;
+	u8 hb1;
+	u8 hb2;
+};
+
+#define HDMI_EMP_PB0_NEW		BIT(7)
+#define HDMI_EMP_PB0_END		BIT(6)
+#define HDMI_EMP_PB0_DS_TYPE_MASK	GENMASK(5, 4)
+#define HDMI_EMP_PB0_AFR		BIT(3)
+#define HDMI_EMP_PB0_VFR		BIT(2)
+#define HDMI_EMP_PB0_SYNC		BIT(1)
+
+/* EMP First Data Set Fragment */
+struct hdmi_emp_first_dsf {
+	u8 pb0;
+	u8 org_id;
+	u16 data_set_tag;
+	u16 data_set_length;
+};
+
+struct hdmi_extended_metadata_packet {
+	enum hdmi_emp_type type;
+	struct hdmi_emp_header header;
+	struct hdmi_emp_first_dsf first_data_set;
+};
 
 #endif /* _DRM_HDMI_H */
