@@ -1333,6 +1333,8 @@ struct intel_crtc_state {
 
 	u8 eld[MAX_ELD_BYTES];
 
+	struct hdmi_extended_metadata_packet cvt_emp;
+
 	/* HDMI scrambling status */
 	bool hdmi_scrambling;
 

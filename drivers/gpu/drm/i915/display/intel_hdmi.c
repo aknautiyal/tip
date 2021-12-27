@@ -2753,6 +2753,29 @@ static int intel_hdmi_compute_formats(struct intel_encoder *encoder,
 	return ret;
 }
 
+static void intel_hdmi_compute_cvtemp_header(struct intel_crtc_state *crtc_state)
+{
+	struct hdmi_extended_metadata_packet *cvt_emp = &crtc_state->cvt_emp;
+
+	cvt_emp->type = HDMI_EMP_TYPE_CVTEM;
+	cvt_emp->header.hb0 = TRANS_HDMI_EMP_HB0;
+
+	cvt_emp->first_data_set.pb0 = HDMI_EMP_PB0_NEW |
+				      HDMI_EMP_PB0_VFR |
+				      HDMI_EMP_PB0_SYNC |
+				      FIELD_PREP(HDMI_EMP_PB0_DS_TYPE_MASK,
+						 HDMI_EMP_DS_TYPE_PSTATIC);
+
+	cvt_emp->first_data_set.org_id = 1;
+	cvt_emp->first_data_set.data_set_tag = 2;
+	/*
+	 * HDMI spec defined EMP CVTEM packets:
+	 * 128 DSC packets + 2 HFront + 2 HSync + 2 Hback + 2 HCactive
+	 * = 136 Bytes.
+	 */
+	cvt_emp->first_data_set.data_set_length = 136;
+}
+
 int intel_hdmi_compute_config(struct intel_encoder *encoder,
 			      struct intel_crtc_state *pipe_config,
 			      struct drm_connector_state *conn_state)
@@ -2860,6 +2883,9 @@ int intel_hdmi_compute_config(struct intel_encoder *encoder,
 		drm_dbg_kms(display->drm, "bad DRM infoframe\n");
 		return -EINVAL;
 	}
+
+	if (pipe_config->dsc.compression_enable)
+		intel_hdmi_compute_cvtemp_header(pipe_config);
 
 	return 0;
 }
