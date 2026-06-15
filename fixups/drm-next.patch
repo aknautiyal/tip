@@ -1,0 +1,12 @@
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_hmm.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_hmm.c
+index a876210c94c5..99bc9ad67d5b 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_hmm.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_hmm.c
+@@ -200,7 +200,6 @@ int amdgpu_hmm_range_get_pages(struct mmu_interval_notifier *notifier,
+ 		pr_debug("hmm range: start = 0x%lx, end = 0x%lx",
+ 			hmm_range->start, hmm_range->end);
+ 
+-retry:
+ 		r = hmm_range_fault(hmm_range);
+ 		if (unlikely(r))
+ 			goto out_free_pfns;
