@@ -26,6 +26,7 @@
  *	Jesse Barnes <jesse.barnes@intel.com>
  */
 
+#include <linux/bitfield.h>
 #include <linux/delay.h>
 #include <linux/gcd.h>
 #include <linux/hdmi.h>
@@ -4503,4 +4504,65 @@ bool intel_hdmi_has_joiner(struct intel_hdmi *intel_hdmi)
 	struct intel_encoder *encoder = &hdmi_to_dig_port(intel_hdmi)->base;
 
 	return HAS_HDMI_FRL(display) && intel_bios_hdmi_max_frl_rate(encoder->devdata);
+}
+
+void intel_hdmi_fill_emp_header_byte(const struct hdmi_extended_metadata_packet *emp,
+				     u32 *emp_header)
+{
+	enum hdmi_emp_ds_type ds_type;
+
+	*emp_header = 0;
+	*emp_header |= TRANS_HDMI_EMP_HB0;
+	*emp_header |= TRANS_HDMI_EMP_NUM_PACKETS(emp->first_data_set.data_set_length);
+
+	ds_type = FIELD_GET(HDMI_EMP_PB0_DS_TYPE_MASK, emp->first_data_set.pb0);
+
+	switch (ds_type) {
+	case HDMI_EMP_DS_TYPE_PSTATIC:
+		*emp_header |= TRANS_HDMI_EMP_DS_TYPE_PSTATIC;
+		break;
+	case HDMI_EMP_DS_TYPE_DYNAMIC:
+		*emp_header |= TRANS_HDMI_EMP_DS_TYPE_DYNAMIC;
+		break;
+	case HDMI_EMP_DS_TYPE_UNIQUE:
+		*emp_header |= TRANS_HDMI_EMP_DS_TYPE_UNIQUE;
+		break;
+	default:
+		break;
+	}
+
+	if (emp->first_data_set.pb0 & HDMI_EMP_PB0_END)
+		*emp_header |= TRANS_HDMI_EMP_END;
+}
+
+void intel_hdmi_read_emp_header_byte(u32 emp_header,
+				     struct hdmi_extended_metadata_packet *emp)
+{
+	enum hdmi_emp_ds_type ds_type;
+	u32 ds;
+
+	emp->type = HDMI_EMP_TYPE_CVTEM;
+	emp->header.hb0 = TRANS_HDMI_EMP_HB0;
+	emp->first_data_set.data_set_length =
+		REG_FIELD_GET(TRANS_HDMI_EMP_NUM_PACKETS_MASK, emp_header);
+
+	ds = emp_header & TRANS_HDMI_EMP_DS_TYPE_MASK;
+	if (ds == TRANS_HDMI_EMP_DS_TYPE_DYNAMIC)
+		ds_type = HDMI_EMP_DS_TYPE_DYNAMIC;
+	else if (ds == TRANS_HDMI_EMP_DS_TYPE_UNIQUE)
+		ds_type = HDMI_EMP_DS_TYPE_UNIQUE;
+	else
+		ds_type = HDMI_EMP_DS_TYPE_PSTATIC;
+
+	/*
+	 * New/VFR/Sync are constant for a CVTEM and are not carried in the HW
+	 * EMP header. Set these bits so that pb0 can be reconstructed and
+	 * checked in state checker along with other cvt_emp header members.
+	 */
+	emp->first_data_set.pb0 = HDMI_EMP_PB0_NEW | HDMI_EMP_PB0_VFR |
+				  HDMI_EMP_PB0_SYNC |
+				  FIELD_PREP(HDMI_EMP_PB0_DS_TYPE_MASK, ds_type);
+
+	if (emp_header & TRANS_HDMI_EMP_END)
+		emp->first_data_set.pb0 |= HDMI_EMP_PB0_END;
 }
