@@ -576,6 +576,16 @@
 								     _TRANS_HDMI_FRL_TRAIN_A)
 #define  TRANS_HDMI_FRL_LTP(pattern, lane) ((pattern) << (lane) * 8)
 
+/* HDMI DSC Horizontal Compressed line total */
+#define _TRANS_HDMI_HCTOTAL_A				0x600b8
+#define TRANS_HDMI_HCTOTAL(dev_priv, trans)		_MMIO_TRANS2(dev_priv, (trans), _TRANS_HDMI_HCTOTAL_A)
+#define	 TRANS_HDMI_HCTOTAL_TB_MASK			REG_GENMASK(29, 16)
+#define	 TRANS_HDMI_HCTOTAL_TB(val)			REG_FIELD_PREP(TRANS_HDMI_HCTOTAL_TB_MASK, \
+								       ((val) & 0x3fff))
+#define	 TRANS_HDMI_HCACTIVE_TB_MASK			REG_GENMASK(13, 0)
+#define	 TRANS_HDMI_HCACTIVE_TB(val)			REG_FIELD_PREP(TRANS_HDMI_HCACTIVE_TB_MASK, \
+								       ((val) & 0x3fff))
+
 /* Hotplug control (945+ only) */
 #define PORT_HOTPLUG_EN(dev_priv)		_MMIO(DISPLAY_MMIO_BASE(dev_priv) + 0x61110)
 #define   PORTB_HOTPLUG_INT_EN			(1 << 29)

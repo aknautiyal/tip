@@ -4446,6 +4446,38 @@ static void intel_hdmi_frl_cfg_read(struct intel_crtc_state *crtc_state)
 		REG_FIELD_GET(TRANS_HDMI_ACTIVE_CHAR_BUF_THRESH_MASK, val);
 }
 
+void intel_hdmi_hctotal_write(const struct intel_crtc_state *crtc_state)
+{
+	struct intel_display *display = to_intel_display(crtc_state);
+	enum transcoder cpu_transcoder = crtc_state->cpu_transcoder;
+	u32 val = 0;
+
+	if (!crtc_state->dsc.compression_enable)
+		return;
+
+	val |= TRANS_HDMI_HCACTIVE_TB(crtc_state->frl.hcactive_tb - 1);
+	val |= TRANS_HDMI_HCTOTAL_TB(crtc_state->frl.hctotal_tb - 1);
+
+	intel_de_write(display, TRANS_HDMI_HCTOTAL(display, cpu_transcoder), val);
+}
+
+static void intel_hdmi_hctotal_read(struct intel_crtc_state *crtc_state)
+{
+	struct intel_display *display = to_intel_display(crtc_state);
+	enum transcoder cpu_transcoder = crtc_state->cpu_transcoder;
+	u32 val;
+
+	if (!crtc_state->dsc.compression_enable)
+		return;
+
+	val = intel_de_read(display, TRANS_HDMI_HCTOTAL(display, cpu_transcoder));
+
+	crtc_state->frl.hcactive_tb =
+		REG_FIELD_GET(TRANS_HDMI_HCACTIVE_TB_MASK, val) + 1;
+	crtc_state->frl.hctotal_tb =
+		REG_FIELD_GET(TRANS_HDMI_HCTOTAL_TB_MASK, val) + 1;
+}
+
 void intel_hdmi_frl_get_config(struct intel_crtc_state *crtc_state)
 {
 	struct intel_display *display = to_intel_display(crtc_state);
@@ -4462,6 +4494,7 @@ void intel_hdmi_frl_get_config(struct intel_crtc_state *crtc_state)
 	crtc_state->frl.required_lanes = crtc_state->lane_count;
 
 	intel_hdmi_frl_dfm_read(crtc_state);
+	intel_hdmi_hctotal_read(crtc_state);
 }
 
 bool intel_hdmi_has_joiner(struct intel_hdmi *intel_hdmi)
