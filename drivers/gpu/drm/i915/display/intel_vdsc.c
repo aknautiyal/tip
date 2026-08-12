@@ -17,9 +17,15 @@
 #include "intel_display_utils.h"
 #include "intel_dp.h"
 #include "intel_dsi.h"
+#include "intel_hdmi.h"
 #include "intel_qp_tables.h"
 #include "intel_vdsc.h"
 #include "intel_vdsc_regs.h"
+
+struct intel_dsc_hdmi_cvtem_packet {
+	u32 emp_header;
+	struct drm_dsc_picture_parameter_set pps_payload;
+} __packed;
 
 bool intel_dsc_source_support(const struct intel_crtc_state *crtc_state)
 {
@@ -1203,4 +1209,62 @@ unsigned int intel_vdsc_prefill_lines(const struct intel_crtc_state *crtc_state)
 		return 0;
 
 	return 0x18000; /* 1.5 */
+}
+
+void intel_dsc_hdmi_pps_write(struct intel_encoder *encoder,
+			      const struct intel_crtc_state *crtc_state)
+{
+	struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(encoder);
+	struct intel_digital_port *dig_port = hdmi_to_dig_port(intel_hdmi);
+	const struct drm_dsc_config *vdsc_cfg = &crtc_state->dsc.config;
+	struct intel_dsc_hdmi_cvtem_packet cvtemp;
+
+	if (!crtc_state->dsc.compression_enable)
+		return;
+
+	/*
+	 * For HDMI PPS parameters are sent as Extended Meta Data Packet EMP.
+	 * Specifically the Compressed Video Transport EMP or CVTEM packets
+	 * are used to send the PPS information to the sink.
+	 *
+	 * As per Bspec 66683:
+	 * CVTEM packets (i.e. PPS packets) are formed using the existing
+	 * VIDEO_DIP_PPS registers (i.e. the HDMI_EMP_* registers are not used
+	 * to form the PPS EMP's)
+	 *
+	 * So using DP_SDP_PPS for HDMI, with first 32 bits as per fields in
+	 * HDMI_EMP_HEADER.
+	 */
+	intel_hdmi_fill_emp_header_byte(&crtc_state->cvt_emp, &cvtemp.emp_header);
+
+	drm_dsc_pps_payload_pack(&cvtemp.pps_payload, vdsc_cfg);
+
+	dig_port->write_infoframe(encoder, crtc_state,
+				  DP_SDP_PPS, &cvtemp,
+				  sizeof(cvtemp));
+}
+
+void intel_dsc_hdmi_pps_read(struct intel_encoder *encoder,
+			     struct intel_crtc_state *crtc_state)
+{
+	struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(encoder);
+	struct intel_digital_port *dig_port = hdmi_to_dig_port(intel_hdmi);
+	u32 emp_header;
+
+	if (!crtc_state->dsc.compression_enable)
+		return;
+
+	/*
+	 * The CVTEM packet is programmed into the DP_SDP_PPS VIDEO_DIP
+	 * registers by intel_dsc_hdmi_pps_write(), with the EMP header packed
+	 * as the first dword. Only that header dword is read back here into
+	 * crtc_state->cvt_emp (hence the sizeof(emp_header) length); the PPS
+	 * payload is recovered into crtc_state->dsc.config by
+	 * intel_dsc_get_config(), so it is not re-read.
+	 */
+	dig_port->read_infoframe(encoder, crtc_state,
+				 DP_SDP_PPS, &emp_header,
+				 sizeof(emp_header));
+
+	intel_hdmi_read_emp_header_byte(emp_header, &crtc_state->cvt_emp);
 }
