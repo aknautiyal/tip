@@ -3517,3 +3517,11 @@ int intel_hdmi_sink_dsc_max_frl_rate(struct drm_connector *connector)
 
 	return max_lanes * rate_per_lane;
 }
+
+bool intel_hdmi_sink_supports_dsc(struct intel_connector *connector)
+{
+	const struct drm_display_info *info = &connector->base.display_info;
+
+	return info->hdmi.dsc_cap.v_1p2 &&
+	       intel_hdmi_sink_dsc_max_frl_rate(&connector->base);
+}

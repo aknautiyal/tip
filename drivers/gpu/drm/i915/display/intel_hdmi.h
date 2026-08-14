@@ -83,5 +83,6 @@ void intel_hdmi_poll_for_scrambling_enable(const struct intel_crtc_state *crtc_s
 
 int intel_hdmi_sink_max_frl_rate(struct drm_connector *connector);
 int intel_hdmi_sink_dsc_max_frl_rate(struct drm_connector *connector);
+bool intel_hdmi_sink_supports_dsc(struct intel_connector *connector);
 
 #endif /* __INTEL_HDMI_H__ */
