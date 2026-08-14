@@ -1201,7 +1201,7 @@ intel_dp_pcon_dsc_fits_frl_bw(struct intel_dp *intel_dp,
 	int pcon_max_slices, pcon_max_slice_width;
 
 	/* PCON and HDMI sink must both support DSC 1.2 */
-	if (!info->hdmi.dsc_cap.v_1p2 ||
+	if (!intel_hdmi_sink_supports_dsc(connector) ||
 	    !drm_dp_pcon_enc_is_dsc_1_2(intel_dp->pcon_dsc_dpcd))
 		return false;
 
@@ -4464,14 +4464,12 @@ intel_dp_pcon_dsc_configure(struct intel_dp *intel_dp,
 {
 	struct intel_display *display = to_intel_display(intel_dp);
 	struct intel_connector *connector = intel_dp->attached_connector;
-	const struct drm_display_info *info;
 	u8 pps_param[6];
 	int slice_height;
 	int slice_width;
 	int num_slices;
 	int bits_per_pixel;
 	int ret;
-	bool hdmi_is_dsc_1_2;
 
 	if (!intel_dp_is_hdmi_2_1_sink(intel_dp))
 		return;
@@ -4479,12 +4477,8 @@ intel_dp_pcon_dsc_configure(struct intel_dp *intel_dp,
 	if (!connector)
 		return;
 
-	info = &connector->base.display_info;
-
-	hdmi_is_dsc_1_2 = info->hdmi.dsc_cap.v_1p2;
-
 	if (!drm_dp_pcon_enc_is_dsc_1_2(intel_dp->pcon_dsc_dpcd) ||
-	    !hdmi_is_dsc_1_2)
+	    !intel_hdmi_sink_supports_dsc(connector))
 		return;
 
 	slice_height = intel_dp_pcon_dsc_enc_slice_height(crtc_state);
