@@ -51,5 +51,8 @@ void intel_dsc_hdmi_pps_write(struct intel_encoder *encoder,
 			      const struct intel_crtc_state *crtc_state);
 void intel_dsc_hdmi_pps_read(struct intel_encoder *encoder,
 			     struct intel_crtc_state *crtc_state);
+int intel_dsc_max_src_slices_per_pipe(void);
+int intel_dsc_max_src_slice_width(struct intel_display *display,
+				  int num_joined_pipes);
 
 #endif /* __INTEL_VDSC_H__ */

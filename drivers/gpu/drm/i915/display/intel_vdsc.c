@@ -18,6 +18,7 @@
 #include "intel_dp.h"
 #include "intel_dsi.h"
 #include "intel_hdmi.h"
+#include "intel_joiner.h"
 #include "intel_qp_tables.h"
 #include "intel_vdsc.h"
 #include "intel_vdsc_regs.h"
@@ -1267,4 +1268,24 @@ void intel_dsc_hdmi_pps_read(struct intel_encoder *encoder,
 				 sizeof(emp_header));
 
 	intel_hdmi_read_emp_header_byte(emp_header, &crtc_state->cvt_emp);
+}
+
+int intel_dsc_max_src_slices_per_pipe(void)
+{
+	/*
+	 * Max HW DSC-per-pipe x slice-per-DSC (= slice-per-pipe) capability:
+	 * ICL:  2x2
+	 * BMG:  2x2, or for ultrajoined 4 pipes: 3x1
+	 * TGL+: 2x4 (TODO: Add support for this)
+	 */
+	return 4;
+}
+
+int intel_dsc_max_src_slice_width(struct intel_display *display,
+				  int num_joined_pipes)
+{
+	if (DISPLAY_VER(display) >= 14)
+		return intel_joiner_max_hdisplay_per_pipe(display) * num_joined_pipes;
+
+	return num_joined_pipes == 1 ? 5120 : 8192;
 }
