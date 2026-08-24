@@ -22,7 +22,6 @@ bool intel_joiner_needs_dsc(struct intel_display *display,
 		num_joined_pipes == 4;
 }
 
-static
 int intel_joiner_max_hdisplay_per_pipe(struct intel_display *display)
 {
 	return DISPLAY_VER(display) >= 30 ? 6144 : 5120;

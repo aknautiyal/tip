@@ -14,6 +14,7 @@ struct intel_display;
 bool intel_joiner_needs_dsc(struct intel_display *display,
 			    int num_joined_pipes);
 bool intel_joiner_connector_can_join(struct intel_connector *connector);
+int intel_joiner_max_hdisplay_per_pipe(struct intel_display *display);
 bool intel_joiner_candidate_valid(struct intel_connector *connector,
 				  int hdisplay,
 				  int num_joined_pipes);
