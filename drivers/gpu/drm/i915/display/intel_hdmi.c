@@ -72,9 +72,15 @@
 #include "intel_panel.h"
 #include "intel_pfit.h"
 #include "intel_snps_phy.h"
+#include "intel_vdsc.h"
 #include "intel_vrr.h"
 
 #define HAS_HDMI_FRL(__display)		(DISPLAY_VER((__display)) >= 14)
+
+static int
+get_dsc_compressed_bpp(enum intel_output_format output_format, int bpc,
+		       int num_slices, int slice_width, int hdmi_max_chunk_bytes,
+		       int src_fractional_bpp, int min_dsc_bpp, int max_dsc_bpp);
 
 bool intel_hdmi_is_frl(u32 clock)
 {
@@ -2124,6 +2130,123 @@ intel_hdmi_can_support_frl(struct intel_hdmi *intel_hdmi)
 	       intel_hdmi->max_frl_rate;
 }
 
+static int
+intel_hdmi_dsc_min_slice_count(const struct drm_display_mode *mode,
+			       int pixel_clock,
+			       enum intel_output_format output_format,
+			       int hdmi_throughput)
+{
+/* Pixel rates in KPixels/sec */
+#define HDMI_DSC_PEAK_PIXEL_RATE		2720000
+/*
+ * Rates at which the source and sink are required to process pixels in each
+ * slice, can be two levels: either at least 340000KHz or at least 40000KHz.
+ */
+#define HDMI_DSC_MAX_ENC_THROUGHPUT_0		340000
+#define HDMI_DSC_MAX_ENC_THROUGHPUT_1		400000
+
+/* Spec limits the slice width to 2720 pixels */
+#define MAX_HDMI_SLICE_WIDTH			2720
+	int kslice_adjust;
+	int adjusted_clk_khz;
+	int max_throughput; /* max clock freq. in khz per slice */
+
+	if (!hdmi_throughput)
+		return 0;
+
+	/*
+	 * Slice Width determination:
+	 * kslice_adjust factor for 4:2:0, and 4:2:2 formats is 0.5, where as
+	 * for 4:4:4 is 1.0. Multiplying these factors by 10 and later
+	 * dividing adjusted clock value by 10.
+	 */
+	if (output_format == INTEL_OUTPUT_FORMAT_YCBCR444 ||
+	    output_format == INTEL_OUTPUT_FORMAT_RGB)
+		kslice_adjust = 10;
+	else
+		kslice_adjust = 5;
+
+	/*
+	 * As per spec, the rate at which the source and the sink process
+	 * the pixels per slice are at two levels: at least 340Mhz or 400Mhz.
+	 * This depends upon the pixel clock rate and output formats
+	 * (kslice adjust).
+	 * If pixel clock * kslice adjust >= 2720MHz slices can be processed
+	 * at max 340MHz, otherwise they can be processed at max 400MHz.
+	 */
+	adjusted_clk_khz = DIV_ROUND_UP(kslice_adjust * pixel_clock, 10);
+
+	if (adjusted_clk_khz <= HDMI_DSC_PEAK_PIXEL_RATE)
+		max_throughput = HDMI_DSC_MAX_ENC_THROUGHPUT_0;
+	else
+		max_throughput = HDMI_DSC_MAX_ENC_THROUGHPUT_1;
+
+	/*
+	 * Taking into account the sink's capability for maximum
+	 * clock per slice (in MHz) as read from HF-VSDB.
+	 */
+	max_throughput = min(max_throughput, hdmi_throughput * 1000);
+
+	return DIV_ROUND_UP(adjusted_clk_khz, max_throughput);
+}
+
+static bool
+intel_hdmi_dsc_get_slice_config(struct intel_hdmi *intel_hdmi,
+				const struct drm_display_mode *mode,
+				enum intel_output_format output_format,
+				int num_joined_pipes,
+				struct intel_dsc_slice_config *config_ret)
+{
+	struct intel_display *display = to_intel_display(intel_hdmi);
+	struct intel_connector *intel_connector = intel_hdmi->attached_connector;
+	const struct drm_display_info *info = &intel_connector->base.display_info;
+	int hdmi_throughput = info->hdmi.dsc_cap.clk_per_slice;
+	int hdmi_max_slices = info->hdmi.dsc_cap.max_slices;
+	int max_slice_width;
+	int slices_per_pipe;
+	int min_slices;
+
+	/* HDMI limits the slice width to 2720 pixels */
+	max_slice_width = min(2720, intel_dsc_max_src_slice_width(display,
+								  num_joined_pipes));
+
+	min_slices = intel_hdmi_dsc_min_slice_count(mode, mode->clock,
+						    output_format,
+						    hdmi_throughput);
+	if (!min_slices)
+		return false;
+
+	for (slices_per_pipe = 1; slices_per_pipe <= 4; slices_per_pipe++) {
+		struct intel_dsc_slice_config config;
+		int slices_per_line, slice_width;
+
+		if (!intel_dsc_get_slice_config(display, num_joined_pipes,
+						slices_per_pipe, &config))
+			continue;
+
+		slices_per_line = intel_dsc_line_slice_count(&config);
+
+		if (slices_per_line > hdmi_max_slices)
+			continue;
+
+		if (slices_per_line < min_slices)
+			continue;
+
+		/* Slices must evenly divide the line */
+		if (mode->hdisplay % slices_per_line)
+			continue;
+
+		slice_width = mode->hdisplay / slices_per_line;
+		if (slice_width > max_slice_width)
+			continue;
+
+		*config_ret = config;
+		return true;
+	}
+
+	return false;
+}
+
 static enum drm_mode_status
 intel_hdmi_mode_valid_format(struct intel_connector *connector,
 			     const struct drm_display_mode *mode,
@@ -2373,6 +2496,65 @@ compute_frl_mn(struct intel_crtc_state *crtc_state, u32 ftb_avg_k)
 	crtc_state->frl.div18 = DIV_ROUND_UP_ULL(div_18_clk, 1000);
 }
 
+static bool
+intel_hdmi_can_support_frl_mode_with_dsc(struct intel_hdmi *intel_hdmi,
+					 struct intel_crtc_state *crtc_state,
+					 struct intel_hdmi_frl_dfm *frl_dfm)
+{
+	const struct drm_display_mode *adjusted_mode = &crtc_state->hw.adjusted_mode;
+	struct intel_connector *intel_connector = intel_hdmi->attached_connector;
+	struct drm_connector *connector = &intel_connector->base;
+	int hdmi_max_chunk_bytes = connector->display_info.hdmi.dsc_cap.total_chunk_kbytes * 1024;
+	bool hdmi_all_bpp = connector->display_info.hdmi.dsc_cap.all_bpp;
+	struct intel_dsc_slice_config slice_config;
+	int slice_count, slice_width;
+	int src_frc_bpp, bpp, bpp_x16, max_dsc_bpp, min_dsc_bpp;
+	u8 bpc;
+
+	if (!intel_hdmi_dsc_get_slice_config(intel_hdmi, adjusted_mode,
+					     crtc_state->output_format,
+					     intel_crtc_num_joined_pipes(crtc_state),
+					     &slice_config))
+		return false;
+
+	slice_count = intel_dsc_line_slice_count(&slice_config);
+	slice_width = adjusted_mode->hdisplay / slice_count;
+
+	/*
+	 * For Display >= 13 fractional bpp of 1/16 is supported.
+	 * Since DSC for HDMI is supported from Display 14 onwards,
+	 * source fractional bpp support is 16 for HDMI
+	 */
+	src_frc_bpp = 16;
+
+	bpc = crtc_state->pipe_bpp / 3;
+
+	intel_hdmi_dsc_get_min_max_bpp(crtc_state->output_format, bpc, hdmi_all_bpp,
+				       &min_dsc_bpp, &max_dsc_bpp);
+
+	for (bpp = max_dsc_bpp; bpp > min_dsc_bpp; bpp--) {
+		bpp_x16 = get_dsc_compressed_bpp(crtc_state->output_format, bpc,
+						 slice_count, slice_width,
+						 hdmi_max_chunk_bytes,
+						 src_frc_bpp, min_dsc_bpp, bpp);
+		if (!bpp_x16)
+			return false;
+
+		bpp = DIV_ROUND_UP(bpp_x16, 16);
+
+		frl_dfm->config.target_bpp_16 = bpp_x16;
+		frl_dfm->config.slice_width = slice_width;
+
+		if (intel_hdmi_frl_dfm_dsc_requirement_met(frl_dfm)) {
+			crtc_state->dsc.slice_config = slice_config;
+			crtc_state->dsc.compressed_bpp_x16 = frl_dfm->config.target_bpp_16;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool intel_hdmi_frl_audio_rate_supported(const struct intel_crtc_state *crtc_state,
 					 int audio_rate, int channels)
 {
@@ -2397,7 +2579,8 @@ bool intel_hdmi_frl_audio_rate_supported(const struct intel_crtc_state *crtc_sta
 
 static int
 intel_hdmi_compute_frl_config(struct intel_encoder *encoder,
-			      struct intel_crtc_state *crtc_state)
+			      struct intel_crtc_state *crtc_state,
+			      bool dsc)
 {
 	static const int rate[] = {9, 18, 24, 32, 40, 48};
 	struct intel_hdmi_frl_dfm frl_dfm = {0};
@@ -2441,7 +2624,13 @@ intel_hdmi_compute_frl_config(struct intel_encoder *encoder,
 		frl_dfm.config.lanes = rate[i] < 24 ? 3 : 4;
 		frl_dfm.config.bit_rate_kbps = (rate[i] * 1000000) / frl_dfm.config.lanes;
 
-		if (intel_hdmi_frl_dfm_nondsc_requirement_met(&frl_dfm)) {
+		if (!dsc && intel_hdmi_frl_dfm_nondsc_requirement_met(&frl_dfm)) {
+			can_support_frl_mode = true;
+			break;
+		} else if (dsc &&
+			   intel_hdmi_can_support_frl_mode_with_dsc(intel_hdmi,
+								    crtc_state,
+								    &frl_dfm)) {
 			can_support_frl_mode = true;
 			break;
 		}
@@ -2469,6 +2658,14 @@ intel_hdmi_compute_frl_config(struct intel_encoder *encoder,
 	drm_dbg_kms(display->drm, "FRL Clock: link_m = %dHz, link_n = %dHz, div18 = %dKHz\n",
 		    crtc_state->frl.link_m, crtc_state->frl.link_n,
 		    crtc_state->frl.div18);
+
+	if (dsc) {
+		crtc_state->frl.hcactive_tb = frl_dfm.params.hcactive_target;
+		crtc_state->frl.hctotal_tb = frl_dfm.params.hcactive_target +
+					     frl_dfm.params.hcblank_target;
+		drm_dbg_kms(display->drm, "FRL DFM DSC config: hcactive_tb = %d, hctotal_tb = %d\n",
+			    crtc_state->frl.hcactive_tb, crtc_state->frl.hctotal_tb);
+	}
 
 	/*
 	 * TODO
@@ -2500,7 +2697,7 @@ _intel_hdmi_compute_frl_clock(struct intel_encoder *encoder,
 
 		crtc_state->pipe_bpp = bpc * 3;
 
-		ret = intel_hdmi_compute_frl_config(encoder, crtc_state);
+		ret = intel_hdmi_compute_frl_config(encoder, crtc_state, false);
 		if (ret)
 			continue;
 
@@ -3765,63 +3962,14 @@ intel_hdmi_dsc_get_num_slices(const struct drm_display_mode *mode,
 			      int src_max_slices, int src_max_slice_width,
 			      int hdmi_max_slices, int hdmi_throughput)
 {
-/* Pixel rates in KPixels/sec */
-#define HDMI_DSC_PEAK_PIXEL_RATE		2720000
-/*
- * Rates at which the source and sink are required to process pixels in each
- * slice, can be two levels: either atleast 340000KHz or atleast 40000KHz.
- */
-#define HDMI_DSC_MAX_ENC_THROUGHPUT_0		340000
-#define HDMI_DSC_MAX_ENC_THROUGHPUT_1		400000
-
-/* Spec limits the slice width to 2720 pixels */
-#define MAX_HDMI_SLICE_WIDTH			2720
-	int kslice_adjust;
-	int adjusted_clk_khz;
 	int min_slices;
 	int target_slices;
-	int max_throughput; /* max clock freq. in khz per slice */
 	int max_slice_width;
 	int slice_width;
 
-	if (!hdmi_throughput)
-		return 0;
-
-	/*
-	 * Slice Width determination : HDMI2.1 Section 7.7.5.1
-	 * kslice_adjust factor for 4:2:0, and 4:2:2 formats is 0.5, where as
-	 * for 4:4:4 is 1.0. Multiplying these factors by 10 and later
-	 * dividing adjusted clock value by 10.
-	 */
-	if (output_format == INTEL_OUTPUT_FORMAT_YCBCR444 ||
-	    output_format == INTEL_OUTPUT_FORMAT_RGB)
-		kslice_adjust = 10;
-	else
-		kslice_adjust = 5;
-
-	/*
-	 * As per spec, the rate at which the source and the sink process
-	 * the pixels per slice are at two levels: atleast 340Mhz or 400Mhz.
-	 * This depends upon the pixel clock rate and output formats
-	 * (kslice adjust).
-	 * If pixel clock * kslice adjust >= 2720MHz slices can be processed
-	 * at max 340MHz, otherwise they can be processed at max 400MHz.
-	 */
-
-	adjusted_clk_khz = DIV_ROUND_UP(kslice_adjust * pixel_clock, 10);
-
-	if (adjusted_clk_khz <= HDMI_DSC_PEAK_PIXEL_RATE)
-		max_throughput = HDMI_DSC_MAX_ENC_THROUGHPUT_0;
-	else
-		max_throughput = HDMI_DSC_MAX_ENC_THROUGHPUT_1;
-
-	/*
-	 * Taking into account the sink's capability for maximum
-	 * clock per slice (in MHz) as read from HF-VSDB.
-	 */
-	max_throughput = min(max_throughput, hdmi_throughput * 1000);
-
-	min_slices = DIV_ROUND_UP(adjusted_clk_khz, max_throughput);
+	min_slices = intel_hdmi_dsc_min_slice_count(mode, pixel_clock,
+						    output_format,
+						    hdmi_throughput);
 	max_slice_width = min(MAX_HDMI_SLICE_WIDTH, src_max_slice_width);
 
 	/*
