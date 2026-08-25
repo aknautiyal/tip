@@ -35,6 +35,7 @@
 #include <linux/slab.h>
 #include <linux/string_helpers.h>
 
+#include <drm/display/drm_dsc_helper.h>
 #include <drm/display/drm_hdcp_helper.h>
 #include <drm/display/drm_hdmi_helper.h>
 #include <drm/display/drm_scdc_helper.h>
@@ -2496,6 +2497,55 @@ compute_frl_mn(struct intel_crtc_state *crtc_state, u32 ftb_avg_k)
 	crtc_state->frl.div18 = DIV_ROUND_UP_ULL(div_18_clk, 1000);
 }
 
+static int
+intel_hdmi_dsc_compute_config(struct intel_encoder *encoder,
+			      struct intel_crtc_state *crtc_state,
+			      struct intel_hdmi_frl_dfm *frl_dfm)
+{
+	struct intel_display *display = to_intel_display(crtc_state);
+	struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(encoder);
+	struct intel_connector *intel_connector = intel_hdmi->attached_connector;
+	const struct drm_display_mode *adjusted_mode =
+		&crtc_state->hw.adjusted_mode;
+	struct drm_dsc_config *vdsc_cfg = &crtc_state->dsc.config;
+	int ret;
+
+	if (!intel_hdmi_sink_supports_dsc(intel_connector))
+		return -EINVAL;
+
+	if (!frl_dfm->config.target_bpp_16 || !frl_dfm->config.slice_width)
+		return -EINVAL;
+
+	vdsc_cfg->slice_height = intel_hdmi_dsc_get_slice_height(adjusted_mode->vdisplay);
+	/*
+	 * Following PPS parameters are hard coded as per HDMI Spec.
+	 */
+	vdsc_cfg->dsc_version_major = 1;
+	vdsc_cfg->dsc_version_minor = 2;
+	vdsc_cfg->line_buf_depth = 13;
+	vdsc_cfg->block_pred_enable = 1;
+	vdsc_cfg->rc_model_size = DSC_RC_MODEL_SIZE_CONST; /* As per C-Model-AN */
+	vdsc_cfg->pic_height = crtc_state->hw.adjusted_mode.crtc_vdisplay;
+
+	ret = intel_dsc_compute_params(crtc_state);
+	if (ret)
+		return ret;
+
+	ret = drm_dsc_compute_rc_parameters(vdsc_cfg);
+	if (ret)
+		return ret;
+
+	crtc_state->dsc.compression_enable = true;
+
+	drm_dbg_kms(display->drm, "HDMI DSC computed with Input Bpp = %d "
+		    "Compressed Bpp = " FXP_Q4_FMT " Slice Count = %d\n",
+		    crtc_state->pipe_bpp,
+		    FXP_Q4_ARGS(crtc_state->dsc.compressed_bpp_x16),
+		    intel_dsc_line_slice_count(&crtc_state->dsc.slice_config));
+
+	return 0;
+}
+
 static bool
 intel_hdmi_can_support_frl_mode_with_dsc(struct intel_hdmi *intel_hdmi,
 					 struct intel_crtc_state *crtc_state,
@@ -2590,6 +2640,7 @@ intel_hdmi_compute_frl_config(struct intel_encoder *encoder,
 	int max_rate = intel_hdmi->max_frl_rate;
 	bool can_support_frl_mode = false;
 	int i;
+	int ret;
 
 	/* Fill mode related input params */
 	frl_dfm.config.pixel_clock_nominal_khz = adjusted_mode->clock;
@@ -2665,6 +2716,10 @@ intel_hdmi_compute_frl_config(struct intel_encoder *encoder,
 					     frl_dfm.params.hcblank_target;
 		drm_dbg_kms(display->drm, "FRL DFM DSC config: hcactive_tb = %d, hctotal_tb = %d\n",
 			    crtc_state->frl.hcactive_tb, crtc_state->frl.hctotal_tb);
+
+		ret = intel_hdmi_dsc_compute_config(encoder, crtc_state, &frl_dfm);
+		if (ret)
+			return ret;
 	}
 
 	/*
