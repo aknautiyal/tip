@@ -5543,6 +5543,11 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 	PIPE_CONF_CHECK_I(dsc.slice_config.streams_per_pipe);
 	PIPE_CONF_CHECK_I(dsc.compressed_bpp_x16);
 
+	PIPE_CONF_CHECK_I(cvt_emp.type);
+	PIPE_CONF_CHECK_I(cvt_emp.header.hb0);
+	PIPE_CONF_CHECK_I(cvt_emp.first_data_set.data_set_length);
+	PIPE_CONF_CHECK_I(cvt_emp.first_data_set.pb0);
+
 	PIPE_CONF_CHECK_BOOL(splitter.enable);
 	PIPE_CONF_CHECK_I(splitter.link_count);
 	PIPE_CONF_CHECK_I(splitter.pixel_overlap);
@@ -5586,6 +5591,8 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 	PIPE_CONF_CHECK_I(frl.active_char_buf_threshold);
 	PIPE_CONF_CHECK_I(frl.link_m);
 	PIPE_CONF_CHECK_I(frl.link_n);
+	PIPE_CONF_CHECK_I(frl.hcactive_tb);
+	PIPE_CONF_CHECK_I(frl.hctotal_tb);
 
 #undef PIPE_CONF_CHECK_X
 #undef PIPE_CONF_CHECK_I
