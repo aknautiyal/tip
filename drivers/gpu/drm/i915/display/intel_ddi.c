@@ -3624,6 +3624,8 @@ static void intel_ddi_enable_hdmi(struct intel_atomic_state *state,
 		}
 		intel_hdmi_frl_cfg_write(crtc_state);
 		intel_hdmi_frl_dfm_write(crtc_state);
+		intel_hdmi_hctotal_write(crtc_state);
+		intel_dsc_hdmi_pps_write(encoder, crtc_state);
 		intel_ddi_enable_transcoder_and_vblank(state, encoder, crtc_state);
 	}
 
@@ -4306,8 +4308,10 @@ static void intel_ddi_get_config(struct intel_encoder *encoder,
 
 	intel_audio_codec_get_config(encoder, pipe_config);
 
-	if (intel_crtc_has_type(pipe_config, INTEL_OUTPUT_HDMI))
+	if (intel_crtc_has_type(pipe_config, INTEL_OUTPUT_HDMI)) {
 		intel_hdmi_frl_get_config(pipe_config);
+		intel_dsc_hdmi_pps_read(encoder, pipe_config);
+	}
 }
 
 void intel_ddi_get_clock(struct intel_encoder *encoder,
