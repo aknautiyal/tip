@@ -2248,6 +2248,46 @@ intel_hdmi_dsc_get_slice_config(struct intel_hdmi *intel_hdmi,
 	return false;
 }
 
+static bool intel_hdmi_dsc_supports_format(struct intel_connector *intel_connector,
+					   enum intel_output_format output_format)
+{
+	struct drm_connector *connector = &intel_connector->base;
+
+	/*
+	 * For Display >= 14 Source always supports DSC with YCbCr420
+	 * HDMI sink support is read from EDID.
+	 *
+	 * YCbCr422 is not supported by driver.
+	 */
+	switch (output_format) {
+	case INTEL_OUTPUT_FORMAT_RGB:
+	case INTEL_OUTPUT_FORMAT_YCBCR444:
+		return true;
+	case INTEL_OUTPUT_FORMAT_YCBCR420:
+		if (connector->display_info.hdmi.dsc_cap.native_420)
+			return true;
+		break;
+	default:
+		return false;
+	}
+
+	return false;
+}
+
+static bool
+intel_hdmi_supports_dsc(struct intel_connector *connector)
+{
+	struct intel_display *display = to_intel_display(connector);
+
+	if (!HAS_DSC(display))
+		return false;
+
+	if (!intel_hdmi_sink_supports_dsc(connector))
+		return false;
+
+	return true;
+}
+
 static enum drm_mode_status
 intel_hdmi_mode_valid_format(struct intel_connector *connector,
 			     const struct drm_display_mode *mode,
@@ -2737,7 +2777,8 @@ intel_hdmi_compute_frl_config(struct intel_encoder *encoder,
 
 static int
 _intel_hdmi_compute_frl_clock(struct intel_encoder *encoder,
-			      struct intel_crtc_state *crtc_state)
+			      struct intel_crtc_state *crtc_state,
+			      bool dsc)
 {
 	struct intel_hdmi *hdmi = enc_to_intel_hdmi(encoder);
 	int max_bpc = max(crtc_state->pipe_bpp / 3, 8);
@@ -2752,7 +2793,7 @@ _intel_hdmi_compute_frl_clock(struct intel_encoder *encoder,
 
 		crtc_state->pipe_bpp = bpc * 3;
 
-		ret = intel_hdmi_compute_frl_config(encoder, crtc_state, false);
+		ret = intel_hdmi_compute_frl_config(encoder, crtc_state, dsc);
 		if (ret)
 			continue;
 
@@ -2777,18 +2818,45 @@ intel_hdmi_compute_clock_for_joined_pipes(struct intel_encoder *encoder,
 	int num_joined_pipes = intel_crtc_num_joined_pipes(crtc_state);
 	const struct drm_display_mode *adjusted_mode =
 		&crtc_state->hw.adjusted_mode;
+	bool dsc_needed = false;
+	int dsc_slice_count;
 	int ret;
 
 	if (intel_joiner_needs_dsc(display, num_joined_pipes))
-		return -EINVAL;
+		dsc_needed = true;
 
-	ret = _intel_hdmi_compute_frl_clock(encoder, crtc_state);
-	if (ret || !intel_dp_dotclk_valid(display,
-					  adjusted_mode->crtc_clock,
-					  adjusted_mode->crtc_htotal,
-					  0,
-					  num_joined_pipes))
-		return -EINVAL;
+	if (!dsc_needed) {
+		ret = _intel_hdmi_compute_frl_clock(encoder, crtc_state, false);
+		if (ret || !intel_dp_dotclk_valid(display,
+						  adjusted_mode->crtc_clock,
+						  adjusted_mode->crtc_htotal,
+						  0,
+						  num_joined_pipes))
+			dsc_needed = true;
+	}
+
+	if (dsc_needed) {
+		if (!intel_hdmi_supports_dsc(connector)) {
+			drm_dbg_kms(display->drm, "DSC required but not available\n");
+			return -EINVAL;
+		}
+
+		if (!intel_hdmi_dsc_supports_format(connector, crtc_state->output_format))
+			return -EINVAL;
+
+		ret = _intel_hdmi_compute_frl_clock(encoder, crtc_state, true);
+		if (ret < 0)
+			return ret;
+
+		dsc_slice_count = intel_dsc_line_slice_count(&crtc_state->dsc.slice_config);
+
+		if (!intel_dp_dotclk_valid(display,
+					   adjusted_mode->crtc_clock,
+					   adjusted_mode->crtc_htotal,
+					   dsc_slice_count,
+					   num_joined_pipes))
+			return -EINVAL;
+	}
 
 	return 0;
 }
