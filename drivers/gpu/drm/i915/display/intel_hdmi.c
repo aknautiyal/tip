@@ -2067,13 +2067,15 @@ get_drm_color_format(enum intel_output_format output_format)
 static enum drm_mode_status
 intel_hdmi_frl_mode_clock_valid(struct intel_connector *connector,
 				const struct drm_display_mode *mode,
-				enum intel_output_format output_format)
+				enum intel_output_format output_format,
+				int slice_width, bool dsc)
 {
 	struct intel_hdmi *hdmi = intel_attached_hdmi(connector);
 	struct intel_hdmi_frl_dfm frl_dfm = {};
 	int max_rate = hdmi->max_frl_rate;
 	int lanes = max_rate < 24 ? 3 : 4;
 	int port_clock;
+	bool ret;
 
 	frl_dfm.config.pixel_clock_nominal_khz = mode->clock;
 	frl_dfm.config.hactive = mode->hdisplay;
@@ -2089,7 +2091,23 @@ intel_hdmi_frl_mode_clock_valid(struct intel_connector *connector,
 	frl_dfm.config.audio_channels = 2;
 	frl_dfm.config.audio_hz = 48000;
 
-	if (!intel_hdmi_frl_dfm_nondsc_requirement_met(&frl_dfm))
+	if (dsc) {
+		bool hdmi_all_bpp = connector->base.display_info.hdmi.dsc_cap.all_bpp;
+		int min_dsc_bpp, max_dsc_bpp;
+
+		intel_hdmi_dsc_get_min_max_bpp(output_format, frl_dfm.config.bpc,
+					       hdmi_all_bpp, &min_dsc_bpp, &max_dsc_bpp);
+
+		/* Best case: minimum compressed bpp (most compression) */
+		frl_dfm.config.target_bpp_16 = min_dsc_bpp * 16;
+		frl_dfm.config.slice_width = slice_width;
+
+		ret = intel_hdmi_frl_dfm_dsc_requirement_met(&frl_dfm);
+	} else {
+		ret = intel_hdmi_frl_dfm_nondsc_requirement_met(&frl_dfm);
+	}
+
+	if (!ret)
 		return MODE_CLOCK_HIGH;
 
 	port_clock = FRL_GBPS_TO_10KBPS(max_rate / lanes);
@@ -2340,7 +2358,8 @@ intel_hdmi_mode_valid_format(struct intel_connector *connector,
 			continue;
 		}
 
-		status = intel_hdmi_frl_mode_clock_valid(connector, mode, sink_format);
+		status = intel_hdmi_frl_mode_clock_valid(connector, mode,
+							 sink_format, 0, false);
 		if (status != MODE_OK)
 			continue;
 
