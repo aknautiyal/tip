@@ -2314,7 +2314,7 @@ intel_hdmi_mode_valid_format(struct intel_connector *connector,
 {
 	struct intel_display *display = to_intel_display(connector);
 	struct intel_hdmi *hdmi = intel_attached_hdmi(connector);
-	enum drm_mode_status status;
+	enum drm_mode_status status = MODE_CLOCK_HIGH;
 	int num_joined_pipes;
 
 	status = intel_hdmi_sink_format_valid(connector, mode,
@@ -2337,9 +2337,40 @@ intel_hdmi_mode_valid_format(struct intel_connector *connector,
 		return status;
 
 	for_each_joiner_candidate(connector, mode, num_joined_pipes) {
-		if (intel_joiner_needs_dsc(display, num_joined_pipes)) {
+		struct intel_dsc_slice_config slice_config;
+		int dsc_slice_count = 0;
+		int slice_width = 0;
+		bool dsc = false;
+		bool dsc_needed;
+
+		if (intel_hdmi_supports_dsc(connector) &&
+		    intel_hdmi_dsc_supports_format(connector, sink_format) &&
+		    intel_hdmi_dsc_get_slice_config(hdmi, mode, sink_format,
+						    num_joined_pipes, &slice_config)) {
+			dsc_slice_count = intel_dsc_line_slice_count(&slice_config);
+			slice_width = mode->hdisplay / dsc_slice_count;
+			dsc = dsc_slice_count > 0;
+		}
+
+		dsc_needed = intel_joiner_needs_dsc(display, num_joined_pipes);
+
+		if (!dsc_needed) {
+			status = intel_hdmi_frl_mode_clock_valid(connector, mode,
+								 sink_format, 0, false);
+			if (status != MODE_OK)
+				dsc_needed = true;
+		}
+
+		if (dsc_needed && !dsc) {
 			status = MODE_CLOCK_HIGH;
 			continue;
+		}
+
+		if (dsc_needed) {
+			status = intel_hdmi_frl_mode_clock_valid(connector, mode,
+								 sink_format, slice_width, true);
+			if (status != MODE_OK)
+				continue;
 		}
 
 		status = intel_pfit_mode_valid(display, mode, sink_format,
@@ -2352,14 +2383,10 @@ intel_hdmi_mode_valid_format(struct intel_connector *connector,
 		if (status != MODE_OK)
 			continue;
 
-		if (!intel_dp_dotclk_valid(display, clock, mode->htotal, 0,
-					   num_joined_pipes)) {
+		if (!intel_dp_dotclk_valid(display, clock, mode->htotal,
+					   dsc_slice_count, num_joined_pipes))
 			status = MODE_CLOCK_HIGH;
-			continue;
-		}
 
-		status = intel_hdmi_frl_mode_clock_valid(connector, mode,
-							 sink_format, 0, false);
 		if (status != MODE_OK)
 			continue;
 
