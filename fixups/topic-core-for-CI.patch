@@ -1,0 +1,34 @@
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_crtc.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_crtc.c
+index 233447dcf6b3..5036ac1c4fd5 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_crtc.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_crtc.c
+@@ -842,7 +842,7 @@ int amdgpu_dm_crtc_init(struct amdgpu_display_manager *dm,
+ 	return 0;
+ 
+ error_ism_fini:
+-	amdgpu_dm_ism_fini(&acrtc->ism);
++	amdgpu_dm_ism_flush(&acrtc->ism);
+ 	drm_crtc_cleanup(&acrtc->base);
+ fail:
+ 	kfree(acrtc);
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c b/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c
+index 736f15931710..4668dc362544 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c
+@@ -1666,7 +1666,7 @@ static void dm_test_crtc_reset_state_replaces_existing(struct kunit *test)
+ 	old->stream = stream;
+ 	crtc->state = &old->base;
+ 
+-	amdgpu_dm_crtc_reset_state(crtc);
++	amdgpu_dm_crtc_create_state(crtc);
+ 
+ 	/* Old state was destroyed (stream ref dropped) and a new one installed. */
+ 	KUNIT_EXPECT_EQ(test, kref_read(&stream->refcount), 1);
+@@ -2643,6 +2643,7 @@ static struct kunit_case amdgpu_dm_crtc_tests[] = {
+ 	KUNIT_CASE(dm_test_crtc_destroy_cleans_up_and_frees),
+ 	/* amdgpu_dm_crtc_create_state */
+ 	KUNIT_CASE(dm_test_crtc_create_state_allocates_state),
++	KUNIT_CASE(dm_test_crtc_reset_state_replaces_existing),
+ 	/* amdgpu_dm_crtc_destroy_state */
+ 	KUNIT_CASE(dm_test_crtc_destroy_state_no_stream),
+ 	KUNIT_CASE(dm_test_crtc_destroy_state_releases_stream),
