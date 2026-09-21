@@ -2683,6 +2683,18 @@ bool intel_hdmi_frl_audio_rate_supported(const struct intel_crtc_state *crtc_sta
 	frl_dfm.config.audio_hz = audio_rate;
 	frl_dfm.config.audio_channels = channels;
 
+	if (crtc_state->dsc.compression_enable) {
+		int slice_count = intel_dsc_line_slice_count(&crtc_state->dsc.slice_config);
+
+		if (!slice_count)
+			return false;
+
+		frl_dfm.config.target_bpp_16 = crtc_state->dsc.compressed_bpp_x16;
+		frl_dfm.config.slice_width = adjusted_mode->hdisplay / slice_count;
+
+		return intel_hdmi_frl_dfm_dsc_requirement_met(&frl_dfm);
+	}
+
 	return intel_hdmi_frl_dfm_nondsc_requirement_met(&frl_dfm);
 }
 
