@@ -1,0 +1,29 @@
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
+index f046ba86020b..05092e050e1a 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
+@@ -750,24 +750,6 @@ static bool rgb_output_is_limited_range(const struct dc_crtc_timing *dc_crtc_tim
+ 	}
+ }
+ 
+-/*
+- * CTA-861 5.1: RGB video formats default to limited range except 640x480 (VIC 1).
+- * With Broadcast RGB left at Automatic follow that default, as i915 does.
+- */
+-static bool rgb_output_is_limited_range(const struct dc_crtc_timing *dc_crtc_timing,
+-					const struct drm_connector_state *connector_state)
+-{
+-	switch (connector_state->hdmi.broadcast_rgb) {
+-	case DRM_HDMI_BROADCAST_RGB_FULL:
+-		return false;
+-	case DRM_HDMI_BROADCAST_RGB_LIMITED:
+-		return true;
+-	default:
+-		return connector_state->connector->display_info.is_hdmi &&
+-		       dc_crtc_timing->vic > 1;
+-	}
+-}
+-
+ enum dc_color_space
+ amdgpu_dm_get_output_color_space(const struct dc_crtc_timing *dc_crtc_timing,
+ 				 const struct drm_connector_state *connector_state)
