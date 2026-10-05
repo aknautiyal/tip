@@ -4565,3 +4565,19 @@ void intel_hdmi_read_emp_header_byte(u32 emp_header,
 	if (emp_header & TRANS_HDMI_EMP_END)
 		emp->first_data_set.pb0 |= HDMI_EMP_PB0_END;
 }
+
+static bool intel_hdmi_has_emp(const struct intel_crtc_state *crtc_state)
+{
+	/* CVTEM (DSC PPS) is the only HDMI EMP as of now */
+	return crtc_state->dsc.compression_enable;
+}
+
+int intel_hdmi_compute_config_late(struct intel_encoder *encoder,
+				   struct intel_crtc_state *crtc_state,
+				   struct drm_connector_state *conn_state)
+{
+	if (intel_hdmi_has_emp(crtc_state))
+		crtc_state->dip.emp_as_sdp_tl = crtc_state->vrr.guardband - 1;
+
+	return 0;
+}
