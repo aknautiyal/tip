@@ -4728,6 +4728,9 @@ static int intel_ddi_compute_config_late(struct intel_atomic_state *state,
 	if (intel_crtc_has_dp_encoder(crtc_state))
 		ret = intel_dp_compute_config_late(encoder, crtc_state, conn_state);
 
+	if (crtc_state->output_types & (BIT(INTEL_OUTPUT_HDMI)))
+		ret = intel_hdmi_compute_config_late(encoder, crtc_state, conn_state);
+
 	if (ret)
 		return ret;
 

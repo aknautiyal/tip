@@ -101,6 +101,9 @@ void intel_hdmi_fill_emp_header_byte(const struct hdmi_extended_metadata_packet 
 				     u32 *emp_header);
 void intel_hdmi_read_emp_header_byte(u32 emp_header,
 				     struct hdmi_extended_metadata_packet *emp);
+int intel_hdmi_compute_config_late(struct intel_encoder *encoder,
+				   struct intel_crtc_state *crtc_state,
+				   struct drm_connector_state *conn_state);
 
 /* FRL rate per lane (Gbps) -> PHY PLL table units (10 kbps) */
 #define FRL_GBPS_TO_10KBPS(rate)	((rate) * 100000)

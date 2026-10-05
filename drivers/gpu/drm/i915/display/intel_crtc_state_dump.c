@@ -260,6 +260,9 @@ void intel_crtc_state_dump(const struct intel_crtc_state *pipe_config,
 			   pipe_config->dip.pps_sdp_tl,
 			   pipe_config->dip.vsc_sdp_tl,
 			   pipe_config->dip.vsc_ext_sdp_tl);
+	} else {
+		drm_printf(&p, "EMP Transmission Lines: EMP/AS SDP: %u\n",
+			   pipe_config->dip.emp_as_sdp_tl);
 	}
 
 	drm_printf(&p, "audio: %i, infoframes: %i, infoframes enabled: 0x%x\n",
